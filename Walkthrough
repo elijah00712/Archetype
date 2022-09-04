@@ -1,0 +1,44 @@
+The target machine is: 10.129.237.186
+
+First we try to know if the machine is being active by using the command <ping 10.129.237.186>
+Then lets check what services are running and what ports are open using the nmap scan: <nmap -sC -sV 10.129.237.186>
+
+After the scan completes, we can easily see that there are 4 ports open and the results are as follows:
+
+PORT     STATE SERVICE      VERSION
+135/tcp  open  msrpc        Microsoft Windows RPC
+139/tcp  open  netbios-ssn  Microsoft Windows netbios-ssn
+445/tcp  open  microsoft-ds Windows Server 2019 Standard 17763 microsoft-ds
+1433/tcp open  ms-sql-s     Microsoft SQL Server 2017 14.00.1000.00; RTM
+
+Host script results:
+| smb-security-mode: 
+|   account_used: guest
+|   authentication_level: user
+|   challenge_response: supported
+|_  message_signing: disabled (dangerous, but default)
+| smb2-security-mode:
+
+Task 1: Which TCP port is hosting a database server?
+
+Answer: 1433
+
+Host script results show that there is samba service running on the machine so we can try to exploit null sessions using smbclient
+
+<smbclient -L //10.129.237.186 -N>
+
+This lists the shares as: and we can see that non-Administrative share available is backups
+
+ 
+Sharename       Type      Comment
+---------       ----      -------
+ADMIN$          Disk      Remote Admin
+backups         Disk      
+C$              Disk      Default share
+IPC$            IPC       Remote IPC
+
+
+Task 2: What is the name of the non-Administrative share available over SMB?
+
+Answer: backups
+
